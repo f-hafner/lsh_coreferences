@@ -1,2 +1,2 @@
 # lsh_entity_disambiguation
-Explore LSH for entity disambiguation
+Explore LSH for finding coreferences from a set of named entities.
