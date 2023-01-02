@@ -168,3 +168,72 @@ class LSHMinHash(LSHBase):
         sizes = [len(g) for g in self.clusters.values()]
         print(f"took {self.time} seconds for {len(self.clusters.keys())} mentions")
         print(f"average, min, max cluster size: {round(sum(sizes)/len(sizes),2)}, {min(sizes)}, {max(sizes)}")
+
+
+class LSHMinHash_np(LSHBase):
+    "LSH with MinHasing and numpy"
+
+    def __init__(self, mentions, shingle_size, signature_size, band_length):
+        super().__init__(mentions, shingle_size)
+        if signature_size % band_length != 0:
+            raise ValueError("Signature needs to be divisible into equal-sized buckets.")
+        self.signature_size = signature_size # this is d below 
+        self.band_length = band_length # this is n_bands or something
+
+    def encode_to_np(self):
+        "one-hot encode mentions, given a vocabulary"
+        J = len(self.vocab) # number of columns 
+        vectors_single = {}
+        for mention, data in self.mentions.items():
+            v = np.zeros(J)
+            for i in np.arange(J):
+                if self.vocab[i] in data["shingles"]:
+                    v[i] = 1
+            vectors_single[mention] = v
+        self.vectors = np.stack(list(vectors_single.values())) # is this scalable? should it be done differently?
+        # better name for self.vectors?
+    
+    def make_signature(self):
+        "make array of dense vectors with MinHashing. each row is one mention"
+        templist = []
+        rng = np.random.default_rng(seed=3)
+        i = 0
+        while i < self.signature_size:
+            rng.shuffle(self.vectors, axis=1)
+            sig_i = self.vectors.argmax(axis=1)
+            templist.append(sig_i)
+            i += 1
+
+        self.signature = np.stack(templist, axis=1)
+
+
+    def get_candidates(self):
+        "extract similar candidates for each mention by comparing subsets of the signature"
+        n_bands = int(self.signature_size / self.band_length)
+        bands = np.split(ary=self.signature, indices_or_sections=n_bands, axis=1)
+        candidates = {i: [] for i in self.mentions.keys()}
+
+        for band in bands: 
+            unique_rows, indices = np.unique(band, axis=0, return_index=True)
+            for r, idx in zip(unique_rows, indices):
+                matching = (band == r).all(axis=1).nonzero()[0]
+                matching = list(matching)
+                for i in matching:
+                    candidates[i].append(matching)
+
+        candidates = {k: list(set([item for sublist in v for item in sublist])) for k, v in candidates.items()}
+        self.candidates = candidates
+
+    def cluster(self):
+        "find similar records for each mention"
+        start = time.time()
+        self._build_vocab()
+        self.encode_to_np()
+        self.make_signature()
+        self.get_candidates()
+        self.time = time.time() - start 
+
+    def summarise(self):
+        sizes = [len(g) for g in self.candidates.values()]
+        print(f"took {self.time} seconds for {len(self.candidates.keys())} mentions")
+        print(f"average, min, max cluster size: {round(sum(sizes)/len(sizes),2)}, {min(sizes)}, {max(sizes)}")
