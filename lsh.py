@@ -72,23 +72,24 @@ def idx_unique_multidim(a):
 
 
 class LSHBase:
+    # Important: order of occurences in shingles and vectors = order of input list (=order of occurrence in document)
     def __init__(self, mentions, shingle_size):
         if isinstance(mentions, dict):
-            self.mentions = {i: {"shingles": k_shingle(m, shingle_size)} for i, m in mentions.items()}
+            self.shingles = [k_shingle(m, shingle_size) for m in mentions.values()]
         elif isinstance(mentions, list):
-            self.mentions = {i: {"shingles": k_shingle(m, shingle_size)} for i, m in zip(range(len(mentions)), mentions) }
+            self.shingles = [k_shingle(m, shingle_size) for m in mentions]
 
     def _build_vocab(self):
-        shingles = [v["shingles"] for v in self.mentions.values()]
-        vocab = list(set([shingle for sublist in shingles for shingle in sublist]))
+        # shingles = [v["shingles"] for v in self.mentions.values()]
+        vocab = list(set([shingle for sublist in self.shingles for shingle in sublist]))
         self.vocab = vocab
 
-    def encode_binary(self):
-        for mention, data in self.mentions.items():
-            v = [1 if self.vocab[i] in data["shingles"] else 0 for i in range(len(self.vocab)) ]
-            self.mentions[mention] = {"shingles": data["shingles"] , "vector": v}
-
-
+    def encode_binary(self, to_numpy=False):
+        vectors = [[1 if word in cur_shingles else 0 for word in self.vocab] for cur_shingles in self.shingles]
+        if not to_numpy:
+            self.vectors = vectors 
+        else:
+            self.vectors = np.stack(vectors)
 
 
 class LSHBitSampling(LSHBase):
@@ -105,30 +106,33 @@ class LSHBitSampling(LSHBase):
     #         neighbors[k] = n_i
     #     return neighbors
 
-    def _to_numpy(self):
-        vectors = [v["vector"] for v in self.mentions.values()] 
-        xb = np.stack([np.array(v) for v in vectors ]).astype('float32')
-        self.xb = xb 
+    # def _to_numpy(self):
+    #     self.xb = self.vectors.astype("float32")
+    #     # vectors = [v["vector"] for v in self.mentions.values()] 
+    #     # xb = np.stack([np.array(v) for v in vectors ]).astype('float32')
+    #     # self.xb = xb 
 
     def faiss_neighbors(self, k, nbits):
         start = time.time()
         self._build_vocab()
-        self.encode_binary()
-        self._to_numpy()
-        d = self.xb.shape[1]
+        self.encode_binary(to_numpy=True)
+        self.vectors = self.vectors.astype("float32")
+        # self._to_numpy()
+        d = self.vectors.shape[1]
         # nbits = 100 # is this the length of the signature?? but the signature is already in the dense vector? 
         index = faiss.IndexLSH(d, nbits)   # build the index
         assert index.is_trained
-        index.add(self.xb)                 # add vectors to the index
+        index.add(self.vectors)                 # add vectors to the index
 
         # want k neighbors, but the first will be the vector itself. thus use k+1
-        D, I = index.search(self.xb, k+1) # sanity check -- for short nbits, it may not even assign itself as the first closest neighbor
+        D, I = index.search(self.vectors, k+1) # sanity check -- for short nbits, it may not even assign itself as the first closest neighbor
         end = time.time()
         self.D = D 
         self.I = I 
         self.timing = end - start
 
     def neighbors_to_dict(self, mention_dict):
+        # TODO: this needs fixing for the new approach with lists instead of dict 
         neighbors = {}
         start = time.time()
         for i in self.mentions.keys():
@@ -221,7 +225,7 @@ class LSHMinHash_nonp(LSHBase):
 
 
 class LSHMinHash(LSHBase):
-    "LSH with MinHasing and numpy"
+    "LSH with MinHashing and numpy"
 
     def __init__(self, mentions, shingle_size, signature_size, band_length):
         super().__init__(mentions, shingle_size)
@@ -230,18 +234,18 @@ class LSHMinHash(LSHBase):
         self.signature_size = signature_size 
         self.band_length = band_length 
 
-    def encode_to_np(self):
-        "one-hot encode mentions, given a vocabulary"
-        J = len(self.vocab) # number of columns 
-        vectors_single = {}
-        for mention, data in self.mentions.items():
-            v = np.zeros(J)
-            for i in np.arange(J):
-                if self.vocab[i] in data["shingles"]:
-                    v[i] = 1
-            vectors_single[mention] = v
-        self.vectors = np.stack(list(vectors_single.values())) # is this scalable? should it be done differently?
-        # better name for self.vectors?
+    # def encode_to_np(self):
+    #     "one-hot encode mentions, given a vocabulary"
+    #     J = len(self.vocab) # number of columns 
+    #     vectors_single = {}
+    #     for mention, data in self.mentions.items():
+    #         v = np.zeros(J)
+    #         for i in np.arange(J):
+    #             if self.vocab[i] in data["shingles"]:
+    #                 v[i] = 1
+    #         vectors_single[mention] = v
+    #     self.vectors = np.stack(list(vectors_single.values())) # is this scalable? should it be done differently?
+    #     # better name for self.vectors?
     
     def make_signature(self):
         "make array of dense vectors with MinHashing. each row is one mention"
@@ -261,7 +265,8 @@ class LSHMinHash(LSHBase):
         "extract similar candidates for each mention by comparing subsets of the signature"
         n_bands = int(self.signature_size / self.band_length)
         bands = np.split(ary=self.signature, indices_or_sections=n_bands, axis=1)
-        candidates = {i: set() for i in self.mentions.keys()}
+        candidates = [set() for i in range(self.vectors.shape[0])]
+        # candidates = {i: set() for i in self.mentions.keys()}
 
         for band in bands:
             groups = idx_unique_multidim(band)
@@ -279,12 +284,12 @@ class LSHMinHash(LSHBase):
         "find similar records for each mention"
         start = time.time()
         self._build_vocab()
-        self.encode_to_np()
+        self.encode_binary(to_numpy=True)
         self.make_signature()
         self.get_candidates()
         self.time = time.time() - start 
 
     def summarise(self):
-        sizes = [len(g) for g in self.candidates.values()]
-        print(f"took {self.time} seconds for {len(self.candidates.keys())} mentions")
+        sizes = [len(g) for g in self.candidates]
+        print(f"took {self.time} seconds for {len(self.candidates)} mentions")
         print(f"average, min, max cluster size: {round(sum(sizes)/len(sizes),2)}, {min(sizes)}, {max(sizes)}")
