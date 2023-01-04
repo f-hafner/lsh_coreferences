@@ -73,7 +73,10 @@ def idx_unique_multidim(a):
 
 class LSHBase:
     def __init__(self, mentions, shingle_size):
-        self.mentions = {i: {"shingles": k_shingle(m, shingle_size)} for i, m in mentions.items()}
+        if isinstance(mentions, dict):
+            self.mentions = {i: {"shingles": k_shingle(m, shingle_size)} for i, m in mentions.items()}
+        elif isinstance(mentions, list):
+            self.mentions = {i: {"shingles": k_shingle(m, shingle_size)} for i, m in zip(range(len(mentions)), mentions) }
 
     def _build_vocab(self):
         shingles = [v["shingles"] for v in self.mentions.values()]
@@ -223,9 +226,9 @@ class LSHMinHash(LSHBase):
     def __init__(self, mentions, shingle_size, signature_size, band_length):
         super().__init__(mentions, shingle_size)
         if signature_size % band_length != 0:
-            raise ValueError("Signature needs to be divisible into equal-sized buckets.")
-        self.signature_size = signature_size # this is d below 
-        self.band_length = band_length # this is n_bands or something
+            raise ValueError("Signature needs to be divisible into equal-sized bands.")
+        self.signature_size = signature_size 
+        self.band_length = band_length 
 
     def encode_to_np(self):
         "one-hot encode mentions, given a vocabulary"

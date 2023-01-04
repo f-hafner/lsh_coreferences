@@ -80,15 +80,22 @@ def load_pairs():
     return coref_pairs
 
 
-def load_coreferences():
+def load_coreferences(drop_duplicates=True):
     "transform ground truth coref pairs to list of mentions"
 
     coref_pairs = load_pairs()
-    mentions = set()
-    for pairs in coref_pairs.values():
-        for p in pairs:
-            mentions.add(p[0])
-            mentions.add(p[1])
+    if drop_duplicates:
+        mentions = set()
+        for pairs in coref_pairs.values():
+            for p in pairs:
+                mentions.add(p[0])
+                mentions.add(p[1])
+    else:
+        mentions = []
+        for pairs in coref_pairs.values():
+            for p in pairs:
+                mentions.append(p[0])
+                mentions.append(p[1])
     
     return mentions
 
