@@ -62,8 +62,8 @@ aida_docnames = [
     '1331testb']
 
 
-def load_coreferences():
-    "load ground truth coreferences"
+def load_pairs():
+    "load ground truth coreference pairs"
     coref_pairs = {}
 
     for doc in aida_docnames:
@@ -76,7 +76,14 @@ def load_coreferences():
                     pairs.append(pair)
 
         coref_pairs[doc] = pairs
+    
+    return coref_pairs
 
+
+def load_coreferences():
+    "transform ground truth coref pairs to list of mentions"
+
+    coref_pairs = load_pairs()
     mentions = set()
     for pairs in coref_pairs.values():
         for p in pairs:
