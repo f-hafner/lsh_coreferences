@@ -26,6 +26,51 @@ def partition_signature(s, b):
         partitions.append(v)
     return partitions
 
+def cols_to_int(a):
+    "combine columns in all rows to an integer: [[1,20,3], [1,4,10]] becomes [1203,1410]"
+    existing_powers = np.floor(np.log10(a))
+    nrows, ncols = a.shape 
+
+    cumsum_powers = np.fliplr(np.cumsum(np.fliplr(existing_powers), axis=1))
+
+    add_powers = [x for x in reversed(range(ncols))]
+    add_powers = np.tile(add_powers, (nrows, 1))
+
+    mult_factor = cumsum_powers - existing_powers + add_powers  
+    summationvector = np.ones((ncols, 1)) 
+    out = np.matmul(a * 10**mult_factor, summationvector)
+    return out 
+
+
+# Not used at the moment
+def cols_to_string(a):
+    "combine columns in all rows to string: [[1,20,3], [1,4,10]] becomes ['1203','1410']."
+    a = a.astype(np.string_)
+    ncols = a.shape[1]
+
+    out = a[:, 0]
+    out = np.expand_dims(out, axis=1)
+    for c in np.split(a[:, 1:], indices_or_sections=ncols-1, axis=1):
+        out = np.char.add(out, c)
+    return out
+
+
+
+def idx_unique_multidim(a):
+    "groups rows in a multidimensional arrays by their unique signature"
+    # a = cols_to_int(a).squeeze() # wrong
+    # a = cols_to_string(a).squeeze() # slow 
+    a = cols_to_int(a).squeeze()
+    sort_idx = np.argsort(a)
+    sort_idx
+    a_sorted = a[sort_idx]
+    unq_first = np.concatenate(([True], a_sorted[1:] != a_sorted[:-1])) # "is the current value different from the previous?". the concat of [True]: because the first occurrence is always True (ie the first time it occur)
+    unq_items = a_sorted[unq_first]
+    unq_count = np.diff(np.nonzero(unq_first)[0]) # np.nonzero(unq_first)[0] gives the indices of first elements in a_sorted
+    unq_idx = np.split(sort_idx, np.cumsum(unq_count))
+    return unq_idx
+
+
 class LSHBase:
     def __init__(self, mentions, shingle_size):
         self.mentions = {i: {"shingles": k_shingle(m, shingle_size)} for i, m in mentions.items()}
@@ -44,6 +89,7 @@ class LSHBase:
 
 
 class LSHBitSampling(LSHBase):
+    "LSH with bit sampling using FAISS."
 
     def __init__(self, mentions, shingle_size):
         super().__init__(mentions, shingle_size)
@@ -95,7 +141,8 @@ class LSHBitSampling(LSHBase):
         print(f"Took {self.timing} seconds to classify {len(self.mentions.keys())} mentions")
 
 
-class LSHMinHash(LSHBase):
+class LSHMinHash_nonp(LSHBase):
+    "LSH with minhashing without numpy"
 
     def __init__(self, mentions, shingle_size, signature_size, n_buckets):
         super().__init__(mentions, shingle_size)
@@ -170,7 +217,7 @@ class LSHMinHash(LSHBase):
         print(f"average, min, max cluster size: {round(sum(sizes)/len(sizes),2)}, {min(sizes)}, {max(sizes)}")
 
 
-class LSHMinHash_np(LSHBase):
+class LSHMinHash(LSHBase):
     "LSH with MinHasing and numpy"
 
     def __init__(self, mentions, shingle_size, signature_size, band_length):
@@ -200,7 +247,7 @@ class LSHMinHash_np(LSHBase):
         i = 0
         while i < self.signature_size:
             rng.shuffle(self.vectors, axis=1)
-            sig_i = self.vectors.argmax(axis=1)
+            sig_i = 1 + self.vectors.argmax(axis=1) # add one for the log10 operations in idx_unique_multidim 
             templist.append(sig_i)
             i += 1
 
@@ -213,13 +260,13 @@ class LSHMinHash_np(LSHBase):
         bands = np.split(ary=self.signature, indices_or_sections=n_bands, axis=1)
         candidates = {i: [] for i in self.mentions.keys()}
 
-        for band in bands: 
-            unique_rows, indices = np.unique(band, axis=0, return_index=True)
-            for r, idx in zip(unique_rows, indices):
-                matching = (band == r).all(axis=1).nonzero()[0]
-                matching = list(matching)
-                for i in matching:
-                    candidates[i].append(matching)
+        for band in bands:
+            groups = idx_unique_multidim(band)
+            groups = [g for g in groups if g.shape[0] > 1]
+            for g in groups:
+                g = list(g)
+                for i in g:
+                    candidates[i].append(g)
 
         candidates = {k: list(set([item for sublist in v for item in sublist])) for k, v in candidates.items()}
         self.candidates = candidates
