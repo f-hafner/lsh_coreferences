@@ -1,8 +1,6 @@
 
 import numpy as np 
-
 import lsh 
-
 
 
 def test_cols_to_int():
@@ -13,19 +11,16 @@ def test_cols_to_int():
 
 
 def test_idx_unique_multidim():   
-    pass # finish here 
-
-
-x1 = np.array([[1, 3], [2, 2], [2, 2], [1, 3], [1, 5], [1, 1]]) # this is one test case
-x2 = np.array([[3,4], [3,5], [5,6], [3,4], [6,7]]) 
-x3 = np.array([[1,4,10], [14, 12, 3], [1, 100, 39], [14, 12, 3]])
-
-
-display(x1)
-display(idx_unique_final(x1))
-
-display(x2)
-display(idx_unique_final(x2))
-
-display(x3)
-display(idx_unique_final(x3))
+    inputs = [
+        np.array([[1, 3], [2, 2], [2, 2], [1, 3], [1, 5], [1, 1]]),
+        np.array([[3,4], [3,5], [5,6], [3,4], [6,7]]) 
+    ]
+    expected = [
+        [np.array([5]), np.array([0, 3]), np.array([4]), np.array([1, 2])],
+        [np.array([0, 3]), np.array([1]), np.array([2]), np.array([4])]
+    ]
+    for input, expected_output in zip(inputs, expected):
+        output = lsh.idx_unique_multidim(input)
+        assert len(expected_output) == len(output), "different lengths"
+        compare = [np.all(e == o) for e, o in zip(expected_output, output)]
+        assert all(compare), f"different groups for \n {input}"
