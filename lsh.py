@@ -258,7 +258,7 @@ class LSHMinHash(LSHBase):
         "extract similar candidates for each mention by comparing subsets of the signature"
         n_bands = int(self.signature_size / self.band_length)
         bands = np.split(ary=self.signature, indices_or_sections=n_bands, axis=1)
-        candidates = {i: [] for i in self.mentions.keys()}
+        candidates = {i: set() for i in self.mentions.keys()}
 
         for band in bands:
             groups = idx_unique_multidim(band)
@@ -266,9 +266,10 @@ class LSHMinHash(LSHBase):
             for g in groups:
                 g = list(g)
                 for i in g:
-                    candidates[i].append(g)
+                    for j in g:
+                        if i != j:
+                            candidates[i].add(j)
 
-        candidates = {k: list(set([item for sublist in v for item in sublist])) for k, v in candidates.items()}
         self.candidates = candidates
 
     def cluster(self):
