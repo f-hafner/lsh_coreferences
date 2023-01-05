@@ -131,21 +131,16 @@ class LSHBitSampling(LSHBase):
         self.I = I 
         self.timing = end - start
 
-    def neighbors_to_dict(self, mention_dict):
-        # TODO: this needs fixing for the new approach with lists instead of dict 
-        neighbors = {}
-        start = time.time()
-        for i in self.mentions.keys():
-            n_idx = list(self.I[i])[1:]
-            n_i = [mention_dict[i] for i in n_idx]
-            k = mention_dict[i]
-            neighbors[k] = n_i
-        end = time.time()
-        self.timing += start - end
+    def neighbors_to_dict(self):
+        neighbors = self.I[:, 1:].tolist() # the first column should be the index of the item itself 
         return neighbors
-        
+        # could extract the strings like this:
+            # out = {mentions_scaled[i]: [mentions_scaled[idx] for idx in mylist[i]] for i in mentions_scaled.keys()}
+            # for a dict of mentions {idx: mention}
+
     def summarise(self):
-        print(f"Took {self.timing} seconds to classify {len(self.mentions.keys())} mentions")
+        n_mentions = self.I.shape[0]
+        print(f"Took {self.timing} seconds to classify {n_mentions} mentions")
 
 
 class LSHMinHash_nonp(LSHBase):
