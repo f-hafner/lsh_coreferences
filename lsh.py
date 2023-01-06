@@ -71,6 +71,44 @@ def idx_unique_multidim(a):
     return unq_idx
 
 
+def reshape_rows_reps(a):
+    "reshape a 3-d array of n_reps x n_rows x n_cols to n_rows x n_reps x n_cols"
+    n_reps, n_rows, n_cols = a.shape
+    a = a.reshape(n_reps*n_rows, n_cols)
+    # extractor indices: for 3 reps, 2 rows: [0,2,4,1,3,5]. to reorder a
+        # in other words: goes from 0 to (n_reps * n_rows). step sizes are n_rows. starts are the row indices
+    idx = np.arange(n_reps*n_rows).reshape(n_reps, n_rows).T.reshape(-1,1)
+    a = np.take_along_axis(a, idx, axis=0)
+    a = a.reshape(n_rows, n_reps, n_cols)
+    return a 
+
+def minhash_signature_np(x, n_reps):
+    """Make a minhash signature of array x with length n_reps.
+
+    Inputs
+    ------
+    x: axis 0 are observations, columns are binary one-hot encoded vectors
+    """
+    # get indices 
+    indices = np.arange(x.shape[1])
+    rng = np.random.default_rng(12345)
+
+    # expand by n_reps 
+    indices_mult = np.tile(indices, (n_reps, 1)) # reorder the columns n_reps times 
+    x_mult = np.tile(x, (n_reps, 1)).reshape((n_reps,) + x.shape) # new shape: (n_resp, x.shape[0], x.shape[1
+
+    # permute indices and apply to x_mult
+    permuted_indices = rng.permuted(indices_mult, axis=1)
+    x_mult_permuted = np.take_along_axis(x_mult, permuted_indices[:, np.newaxis], 2)
+
+    # for the reduction below, need to have all samples of the same observation in one block
+    x_mult_permuted = reshape_rows_reps(x_mult_permuted)
+
+    # make signature
+    sig = x_mult_permuted.argmax(axis=2)
+    return sig 
+
+
 class LSHBase:
     # Important: order of occurences in shingles and vectors = order of input list (=order of occurrence in document)
     def __init__(self, mentions, shingle_size):
@@ -255,6 +293,9 @@ class LSHMinHash(LSHBase):
 
         self.signature = np.stack(templist, axis=1)
 
+    def make_signature_np(self):
+        signature = minhash_signature_np(self.vectors, self.signature_size)
+        self.signature = signature + np.ones(signature.shape)  # this is for the log10 operations: do not want to have 0s
 
     def get_candidates(self):
         "extract similar candidates for each mention by comparing subsets of the signature"
@@ -275,12 +316,15 @@ class LSHMinHash(LSHBase):
 
         self.candidates = candidates
 
-    def cluster(self):
+    def cluster(self, numpy_signature=False):
         "find similar records for each mention"
         start = time.time()
         self._build_vocab()
         self.encode_binary(to_numpy=True)
-        self.make_signature()
+        if numpy_signature:
+            self.make_signature_np()
+        else:
+            self.make_signature()
         self.get_candidates()
         self.time = time.time() - start 
 
