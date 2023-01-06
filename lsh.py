@@ -78,8 +78,9 @@ def reshape_rows_reps(a):
     # extractor indices: for 3 reps, 2 rows: [0,2,4,1,3,5]. to reorder a
         # in other words: goes from 0 to (n_reps * n_rows). step sizes are n_rows. starts are the row indices
     idx = np.arange(n_reps*n_rows).reshape(n_reps, n_rows).T.reshape(-1,1)
-    a = np.take_along_axis(a, idx, axis=0)
-    a = a.reshape(n_rows, n_reps, n_cols)
+    # a = np.take_along_axis(a, idx, axis=0) # slow 
+    # a = a.reshape(n_rows, n_reps, n_cols)
+    a = a[idx,:].squeeze().reshape(n_rows, n_reps, n_cols)
     return a 
 
 def minhash_signature_np(x, n_reps):
@@ -99,7 +100,9 @@ def minhash_signature_np(x, n_reps):
 
     # permute indices and apply to x_mult
     permuted_indices = rng.permuted(indices_mult, axis=1)
-    x_mult_permuted = np.take_along_axis(x_mult, permuted_indices[:, np.newaxis], 2)
+    # x_mult_permuted = np.take_along_axis(x_mult, permuted_indices[:, np.newaxis], 2)
+    I = np.arange(x_mult.shape[0])[:, np.newaxis]
+    x_mult_permuted = x_mult[I, :, permuted_indices].swapaxes(1,2)
 
     # for the reduction below, need to have all samples of the same observation in one block
     x_mult_permuted = reshape_rows_reps(x_mult_permuted)
@@ -315,17 +318,25 @@ class LSHMinHash(LSHBase):
                             candidates[i].add(j)
 
         self.candidates = candidates
+    
+    def all_candidates_to_all(self):
+        "fall-back option to return the non-clustered input"
+        n_mentions = self.vectors.shape[0]
+        self.candidates = [set(range(n_mentions)) for _ in range(n_mentions)]
 
     def cluster(self, numpy_signature=False):
         "find similar records for each mention"
         start = time.time()
         self._build_vocab()
         self.encode_binary(to_numpy=True)
-        if numpy_signature:
-            self.make_signature_np()
+        if self.vectors.shape[1] == 0: # no signature possible b/c no mention is longer than the shingle size.
+            self.all_candidates_to_all()
         else:
-            self.make_signature()
-        self.get_candidates()
+            if numpy_signature:
+                self.make_signature_np()
+            else:
+                self.make_signature()
+            self.get_candidates()
         self.time = time.time() - start 
 
     def summarise(self):
